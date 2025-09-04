@@ -54,7 +54,7 @@ if uploaded_file:
     # Date filter (multi-select)
     # -------------------------
     if "date" in campaign_con.columns:
-        campaign_con["date"] = pd.to_datetime(campaign_con["date"], errors="coerce").dt.date
+        campaign_con["date"] = pd.to_datetime(campaign_con["joined"], errors="coerce").dt.date
         available_dates = sorted(campaign_con["date"].dropna().unique())
         selected_dates = st.multiselect(
             "Select Dates",
@@ -120,5 +120,6 @@ if uploaded_file:
         file_name="streamlit_report.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
+
 
 
