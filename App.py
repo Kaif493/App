@@ -10,6 +10,9 @@ if uploaded_file:
     campaign = pd.read_excel(uploaded_file)
     campaign.columns = campaign.columns.astype(str).str.lower()
 
+    # -------------------------
+    # Parse UTM JSON column
+    # -------------------------
     def parse_utm(x):
         if pd.isna(x):
             return None
@@ -27,15 +30,35 @@ if uploaded_file:
     campaign_con = pd.concat([campaign.drop(columns=["utm_hit"]), utm_df], axis=1)
 
     campaign_con.columns = campaign_con.columns.str.lower().str.replace(".", "_")
+
     for col in ["utm_hit_utmcampaign", "utm_hit_utmsource"]:
         if col in campaign_con:
-            campaign_con[col] = campaign_con[col].astype(str).str.strip().replace("nan", "UNKNOWN")
+            campaign_con[col] = (
+                campaign_con[col]
+                .astype(str)
+                .str.strip()
+                .replace("nan", "UNKNOWN")
+            )
+
+    # -------------------------
+    # Ensure Date Column from "joined"
+    # -------------------------
+    if "joined" in campaign_con.columns:
+        campaign_con["date"] = pd.to_datetime(
+            campaign_con["joined"], errors="coerce"
+        ).dt.date
+    else:
+        campaign_con["date"] = pd.NaT
 
     # -------------------------
     # UTM filters
     # -------------------------
-    sources = ["All"] + sorted(campaign_con["utm_hit_utmsource"].replace(np.nan, "UNKNOWN").unique())
-    campaigns = ["All"] + sorted(campaign_con["utm_hit_utmcampaign"].replace(np.nan, "UNKNOWN").unique())
+    sources = ["All"] + sorted(
+        campaign_con["utm_hit_utmsource"].replace(np.nan, "UNKNOWN").unique()
+    )
+    campaigns = ["All"] + sorted(
+        campaign_con["utm_hit_utmcampaign"].replace(np.nan, "UNKNOWN").unique()
+    )
 
     selected_source = st.selectbox("Select UTM Source", sources)
     selected_campaign = st.selectbox("Select UTM Campaign", campaigns)
@@ -47,22 +70,21 @@ if uploaded_file:
         "Deposit Total Range",
         float(campaign_con["deposits_total_in_usd"].min()),
         float(campaign_con["deposits_total_in_usd"].max()),
-        (float(campaign_con["deposits_total_in_usd"].min()), float(campaign_con["deposits_total_in_usd"].max())),
+        (
+            float(campaign_con["deposits_total_in_usd"].min()),
+            float(campaign_con["deposits_total_in_usd"].max()),
+        ),
     )
 
     # -------------------------
     # Date filter (multi-select)
     # -------------------------
-    if "date" in campaign_con.columns:
-        campaign_con["date"] = pd.to_datetime(campaign_con["joined"], errors="coerce").dt.date
-        available_dates = sorted(campaign_con["date"].dropna().unique())
-        selected_dates = st.multiselect(
-            "Select Dates",
-            options=available_dates,
-            default=available_dates  # select all by default
-        )
-    else:
-        selected_dates = []
+    available_dates = sorted(campaign_con["date"].dropna().unique())
+    selected_dates = st.multiselect(
+        "Select Dates",
+        options=available_dates,
+        default=available_dates,  # all selected by default
+    )
 
     # -------------------------
     # Apply Filters
@@ -88,13 +110,13 @@ if uploaded_file:
         total_deposits=("deposits_total_in_usd", "sum"),
     )
 
-    # Grand Total
+    # Grand Total row
     grand_total = pd.DataFrame({
         "date": ["TOTAL"],
         "utm_hit_utmsource": ["TOTAL"],
         "utm_hit_utmcampaign": ["TOTAL"],
         "total_leads": [grouped["total_leads"].sum()],
-        "total_deposits": [grouped["total_deposits"].sum()]
+        "total_deposits": [grouped["total_deposits"].sum()],
     })
 
     utm_with_total = pd.concat([grouped, grand_total], ignore_index=True)
@@ -102,8 +124,8 @@ if uploaded_file:
     # -------------------------
     # Display
     # -------------------------
-    st.write("Filtered Summary:", utm_with_total)
-    st.write("Filtered Detailed Data:", df_filtered)
+    st.write("### Filtered Summary", utm_with_total)
+    st.write("### Filtered Detailed Data", df_filtered)
 
     # -------------------------
     # Save Excel
@@ -118,8 +140,5 @@ if uploaded_file:
         label="Download Report as Excel",
         data=output.getvalue(),
         file_name="streamlit_report.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
-
-
-
