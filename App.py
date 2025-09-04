@@ -51,17 +51,36 @@ if uploaded_file:
         campaign_con["date"] = pd.NaT
 
     # -------------------------
-    # UTM filters
+    # UTM filters (multi-select with Select All)
     # -------------------------
-    sources = ["All"] + sorted(
+    sources = sorted(
         campaign_con["utm_hit_utmsource"].replace(np.nan, "UNKNOWN").unique()
     )
-    campaigns = ["All"] + sorted(
+    campaigns = sorted(
         campaign_con["utm_hit_utmcampaign"].replace(np.nan, "UNKNOWN").unique()
     )
 
-    selected_source = st.selectbox("Select UTM Source", sources)
-    selected_campaign = st.selectbox("Select UTM Campaign", campaigns)
+    # UTM Source Filter
+    select_all_sources = st.checkbox("Select All Sources", value=True)
+    if select_all_sources:
+        selected_sources = st.multiselect(
+            "Select UTM Source(s)", options=sources, default=sources
+        )
+    else:
+        selected_sources = st.multiselect(
+            "Select UTM Source(s)", options=sources, default=[]
+        )
+
+    # UTM Campaign Filter
+    select_all_campaigns = st.checkbox("Select All Campaigns", value=True)
+    if select_all_campaigns:
+        selected_campaigns = st.multiselect(
+            "Select UTM Campaign(s)", options=campaigns, default=campaigns
+        )
+    else:
+        selected_campaigns = st.multiselect(
+            "Select UTM Campaign(s)", options=campaigns, default=[]
+        )
 
     # -------------------------
     # Deposit range filter
@@ -77,14 +96,18 @@ if uploaded_file:
     )
 
     # -------------------------
-    # Date filter (multi-select)
+    # Date filter (multi-select with Select All)
     # -------------------------
     available_dates = sorted(campaign_con["date"].dropna().unique())
-    selected_dates = st.multiselect(
-        "Select Dates",
-        options=available_dates,
-        default=available_dates,  # all selected by default
-    )
+    select_all_dates = st.checkbox("Select All Dates", value=True)
+    if select_all_dates:
+        selected_dates = st.multiselect(
+            "Select Dates", options=available_dates, default=available_dates
+        )
+    else:
+        selected_dates = st.multiselect(
+            "Select Dates", options=available_dates, default=[]
+        )
 
     # -------------------------
     # Apply Filters
@@ -93,10 +116,10 @@ if uploaded_file:
         (campaign_con["deposits_total_in_usd"] >= deposit_min)
         & (campaign_con["deposits_total_in_usd"] <= deposit_max)
     ]
-    if selected_source != "All":
-        df_filtered = df_filtered[df_filtered["utm_hit_utmsource"] == selected_source]
-    if selected_campaign != "All":
-        df_filtered = df_filtered[df_filtered["utm_hit_utmcampaign"] == selected_campaign]
+    if selected_sources:
+        df_filtered = df_filtered[df_filtered["utm_hit_utmsource"].isin(selected_sources)]
+    if selected_campaigns:
+        df_filtered = df_filtered[df_filtered["utm_hit_utmcampaign"].isin(selected_campaigns)]
     if selected_dates:
         df_filtered = df_filtered[df_filtered["date"].isin(selected_dates)]
 
@@ -122,10 +145,22 @@ if uploaded_file:
     utm_with_total = pd.concat([grouped, grand_total], ignore_index=True)
 
     # -------------------------
+    # Styling: Bold TOTAL row
+    # -------------------------
+    def highlight_total(row):
+        return ["font-weight: bold; background-color: #2c2c2c; color: white;"
+                if row["date"] == "TOTAL" else "" for _ in row]
+
+    styled_summary = utm_with_total.style.apply(highlight_total, axis=1)
+
+    # -------------------------
     # Display
     # -------------------------
-    st.write("### Filtered Summary", utm_with_total)
-    st.write("### Filtered Detailed Data", df_filtered)
+    st.write("### Filtered Summary")
+    st.dataframe(styled_summary, use_container_width=True)
+
+    st.write("### Filtered Detailed Data")
+    st.dataframe(df_filtered, use_container_width=True)
 
     # -------------------------
     # Save Excel
