@@ -4,6 +4,9 @@ import numpy as np
 import ast
 import io
 
+# -------------------------
+# File Upload
+# -------------------------
 uploaded_file = st.file_uploader("Upload campaign Excel file", type=["xlsx"])
 
 if uploaded_file:
@@ -25,12 +28,17 @@ if uploaded_file:
                 return None
         return None
 
-    campaign["utm_hit"] = campaign["utm_hit"].apply(parse_utm)
-    utm_df = pd.json_normalize(campaign["utm_hit"]).add_prefix("utm_hit_")
-    campaign_con = pd.concat([campaign.drop(columns=["utm_hit"]), utm_df], axis=1)
+    if "utm_hit" in campaign.columns:
+        campaign["utm_hit"] = campaign["utm_hit"].apply(parse_utm)
+        utm_df = pd.json_normalize(campaign["utm_hit"]).add_prefix("utm_hit_")
+        campaign_con = pd.concat([campaign.drop(columns=["utm_hit"]), utm_df], axis=1)
+    else:
+        campaign_con = campaign.copy()
 
-    campaign_con.columns = campaign_con.columns.str.lower().str.replace(".", "_")
+    # Clean column names
+    campaign_con.columns = campaign_con.columns.str.lower().str.replace(".", "_", regex=False)
 
+    # Fill missing UTM values
     for col in ["utm_hit_utmcampaign", "utm_hit_utmsource"]:
         if col in campaign_con:
             campaign_con[col] = (
@@ -39,82 +47,75 @@ if uploaded_file:
                 .str.strip()
                 .replace("nan", "UNKNOWN")
             )
+        else:
+            campaign_con[col] = "UNKNOWN"
 
     # -------------------------
-    # Ensure Date Column from "joined"
+    # Ensure Date Column
     # -------------------------
     if "joined" in campaign_con.columns:
-        campaign_con["date"] = pd.to_datetime(
-            campaign_con["joined"], errors="coerce"
-        ).dt.date
+        campaign_con["date"] = pd.to_datetime(campaign_con["joined"], errors="coerce").dt.date
     else:
         campaign_con["date"] = pd.NaT
 
     # -------------------------
-    # UTM filters (multi-select with Select All)
+    # Convert deposits column to numeric
     # -------------------------
-    sources = sorted(
-        campaign_con["utm_hit_utmsource"].replace(np.nan, "UNKNOWN").unique()
-    )
-    campaigns = sorted(
-        campaign_con["utm_hit_utmcampaign"].replace(np.nan, "UNKNOWN").unique()
-    )
-
-    # UTM Source Filter
-    select_all_sources = st.checkbox("Select All Sources", value=True)
-    if select_all_sources:
-        selected_sources = st.multiselect(
-            "Select UTM Source(s)", options=sources, default=sources
-        )
+    if "deposits_total_in_usd" in campaign_con.columns:
+        deposit_col = pd.to_numeric(campaign_con["deposits_total_in_usd"], errors="coerce").fillna(0)
+        campaign_con["deposits_total_in_usd"] = deposit_col
     else:
-        selected_sources = st.multiselect(
-            "Select UTM Source(s)", options=sources, default=[]
-        )
+        campaign_con["deposits_total_in_usd"] = 0
+        deposit_col = campaign_con["deposits_total_in_usd"]
+
+    # -------------------------
+    # UTM Source Filter
+    # -------------------------
+    sources = sorted(campaign_con["utm_hit_utmsource"].replace(np.nan, "UNKNOWN").unique())
+    select_all_sources = st.checkbox("Select All Sources", value=True)
+    selected_sources = st.multiselect(
+        "Select UTM Source(s)",
+        options=sources,
+        default=sources if select_all_sources else []
+    )
 
     # UTM Campaign Filter
+    campaigns = sorted(campaign_con["utm_hit_utmcampaign"].replace(np.nan, "UNKNOWN").unique())
     select_all_campaigns = st.checkbox("Select All Campaigns", value=True)
-    if select_all_campaigns:
-        selected_campaigns = st.multiselect(
-            "Select UTM Campaign(s)", options=campaigns, default=campaigns
-        )
-    else:
-        selected_campaigns = st.multiselect(
-            "Select UTM Campaign(s)", options=campaigns, default=[]
-        )
+    selected_campaigns = st.multiselect(
+        "Select UTM Campaign(s)",
+        options=campaigns,
+        default=campaigns if select_all_campaigns else []
+    )
 
     # -------------------------
-    # Deposit range filter
+    # Deposit Range Slider
     # -------------------------
     deposit_min, deposit_max = st.slider(
         "Deposit Total Range",
-        float(campaign_con["deposits_total_in_usd"].min()),
-        float(campaign_con["deposits_total_in_usd"].max()),
-        (
-            float(campaign_con["deposits_total_in_usd"].min()),
-            float(campaign_con["deposits_total_in_usd"].max()),
-        ),
+        min_value=float(deposit_col.min()),
+        max_value=float(deposit_col.max()),
+        value=(float(deposit_col.min()), float(deposit_col.max())),
+        step=1.0
     )
 
     # -------------------------
-    # Date filter (multi-select with Select All)
+    # Date Filter
     # -------------------------
     available_dates = sorted(campaign_con["date"].dropna().unique())
     select_all_dates = st.checkbox("Select All Dates", value=True)
-    if select_all_dates:
-        selected_dates = st.multiselect(
-            "Select Dates", options=available_dates, default=available_dates
-        )
-    else:
-        selected_dates = st.multiselect(
-            "Select Dates", options=available_dates, default=[]
-        )
+    selected_dates = st.multiselect(
+        "Select Dates",
+        options=available_dates,
+        default=available_dates if select_all_dates else []
+    )
 
     # -------------------------
     # Apply Filters
     # -------------------------
     df_filtered = campaign_con[
-        (campaign_con["deposits_total_in_usd"] >= deposit_min)
-        & (campaign_con["deposits_total_in_usd"] <= deposit_max)
+        (campaign_con["deposits_total_in_usd"] >= deposit_min) &
+        (campaign_con["deposits_total_in_usd"] <= deposit_max)
     ]
     if selected_sources:
         df_filtered = df_filtered[df_filtered["utm_hit_utmsource"].isin(selected_sources)]
@@ -124,7 +125,7 @@ if uploaded_file:
         df_filtered = df_filtered[df_filtered["date"].isin(selected_dates)]
 
     # -------------------------
-    # Grouped Summary (with Date)
+    # Grouped Summary
     # -------------------------
     grouped = df_filtered.groupby(
         ["date", "utm_hit_utmsource", "utm_hit_utmcampaign"], as_index=False
@@ -133,19 +134,18 @@ if uploaded_file:
         total_deposits=("deposits_total_in_usd", "sum"),
     )
 
-    # Grand Total row
+    # Grand Total Row
     grand_total = pd.DataFrame({
         "date": ["TOTAL"],
         "utm_hit_utmsource": ["TOTAL"],
         "utm_hit_utmcampaign": ["TOTAL"],
-        "total_leads": [grouped["total_leads"].sum()],
-        "total_deposits": [grouped["total_deposits"].sum()],
+        "total_leads": [grouped["total_leads"].sum() if not grouped.empty else 0],
+        "total_deposits": [grouped["total_deposits"].sum() if not grouped.empty else 0],
     })
-
     utm_with_total = pd.concat([grouped, grand_total], ignore_index=True)
 
     # -------------------------
-    # Styling: Bold TOTAL row
+    # Highlight TOTAL row
     # -------------------------
     def highlight_total(row):
         return ["font-weight: bold; background-color: #2c2c2c; color: white;"
@@ -163,7 +163,7 @@ if uploaded_file:
     st.dataframe(df_filtered, use_container_width=True)
 
     # -------------------------
-    # Save Excel
+    # Export Excel
     # -------------------------
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
