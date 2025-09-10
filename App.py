@@ -61,12 +61,9 @@ if uploaded_file:
     # -------------------------
     # Convert deposits column to numeric
     # -------------------------
-    if "deposits_total_in_usd" in campaign_con.columns:
-        deposit_col = pd.to_numeric(campaign_con["deposits_total_in_usd"], errors="coerce").fillna(0)
-        campaign_con["deposits_total_in_usd"] = deposit_col
-    else:
-        campaign_con["deposits_total_in_usd"] = 0
-        deposit_col = campaign_con["deposits_total_in_usd"]
+    deposit_col = campaign_con.get("deposits_total_in_usd", pd.Series([0]))
+    deposit_col = pd.to_numeric(deposit_col, errors="coerce").fillna(0)
+    campaign_con["deposits_total_in_usd"] = deposit_col
 
     # -------------------------
     # UTM Source Filter
@@ -89,13 +86,22 @@ if uploaded_file:
     )
 
     # -------------------------
-    # Deposit Range Slider
+    # Deposit Range Slider (Bulletproof)
     # -------------------------
+    if deposit_col.empty:
+        deposit_min_val = 0.0
+        deposit_max_val = 1.0
+    else:
+        deposit_min_val = float(deposit_col.min())
+        deposit_max_val = float(deposit_col.max())
+        if deposit_min_val == deposit_max_val:
+            deposit_max_val = deposit_min_val + 1.0
+
     deposit_min, deposit_max = st.slider(
         "Deposit Total Range",
-        min_value=float(deposit_col.min()),
-        max_value=float(deposit_col.max()),
-        value=(float(deposit_col.min()), float(deposit_col.max())),
+        min_value=deposit_min_val,
+        max_value=deposit_max_val,
+        value=(deposit_min_val, deposit_max_val),
         step=1.0
     )
 
